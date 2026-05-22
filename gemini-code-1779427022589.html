@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>고급 AED 최적 배치 시뮬레이터</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+        .controls { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 15px; align-items: center; }
+        canvas { border: 2px solid #333; background: #fff; max-width: 100%; cursor: crosshair; }
+    </style>
+</head>
+<body>
+    <h1>🚑 지능형 AED 최적 배치 시뮬레이터</h1>
+    <div class="controls">
+        <input type="file" id="imageInput" accept="image/*">
+        <label>AED 개수: <input type="number" id="aedCount" value="3" min="1" max="10"></label>
+        <label>계단 가중치: <input type="range" id="stairWeight" min="1" max="20" value="5"> <span id="wVal">5</span></label>
+        <button id="runBtn">최적 배치 분석 실행</button>
+    </div>
+    <canvas id="canvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const imgInput = document.getElementById('imageInput');
+        const runBtn = document.getElementById('runBtn');
+        const weightSlider = document.getElementById('stairWeight');
+
+        weightSlider.oninput = () => document.getElementById('wVal').innerText = weightSlider.value;
+
+        imgInput.onchange = (e) => {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const img = new Image();
+                img.onload = () => {
+                    canvas.width = img.width; canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        };
+
+        runBtn.onclick = () => {
+            const w = canvas.width, h = canvas.height;
+            const data = ctx.getImageData(0, 0, w, h).data;
+            const walkable = new Uint8Array(w * h); // 1: 실내, 0: 벽/외부
+            const stairMap = new Uint8Array(w * h); // 1: 계단(보라)
+
+            // 1. 벽 및 계단 인식 (이미지 스캔)
+            for (let i = 0; i < data.length; i += 4) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const idx = i / 4;
+                
+                // 보라색(계단) 판단
+                if (r > 150 && b > 150 && g < 100) stairMap[idx] = 1;
+                
+                // 검은색(벽) 판단 (어두우면 벽)
+                if (r < 50 && g < 50 && b < 50) walkable[idx] = 0;
+                else walkable[idx] = 1;
+            }
+
+            // 2. K-Means (간소화 버전)
+            const k = parseInt(document.getElementById('aedCount').value);
+            const weight = parseInt(weightSlider.value);
+            let centers = [];
+            for(let i=0; i<k; i++) centers.push({x: Math.random()*w, y: Math.random()*h});
+
+            // 반복 최적화
+            for(let iter=0; iter<10; iter++) {
+                let nextCenters = Array.from({length: k}, () => ({x:0, y:0, n:0}));
+                for(let x=0; x<w; x+=10) {
+                    for(let y=0; y<h; y+=10) {
+                        if(!walkable[y*w+x]) continue; // 벽이면 스킵
+                        
+                        let bestDist = Infinity, bestC = 0;
+                        for(let c=0; c<k; c++) {
+                            let d = Math.hypot(x-centers[c].x, y-centers[c].y);
+                            if(stairMap[y*w+x]) d *= weight; // 계단 가중치 적용
+                            if(d < bestDist) { bestDist = d; bestC = c; }
+                        }
+                        nextCenters[bestC].x += x; nextCenters[bestC].y += y; nextCenters[bestC].n++;
+                    }
+                }
+                centers = nextCenters.map(c => c.n > 0 ? {x: c.x/c.n, y: c.y/c.n} : centers[0]);
+            }
+
+            // 3. 결과 그리기 (벽이 아닌 곳으로 위치 보정)
+            ctx.fillStyle = 'red';
+            centers.forEach(c => {
+                let rx = Math.floor(c.x), ry = Math.floor(c.y);
+                // 벽이면 벽이 아닌 가장 가까운 곳으로 이동
+                while(!walkable[ry*w+rx] && rx < w) rx++; 
+                ctx.beginPath(); ctx.arc(rx, ry, 15, 0, Math.PI*2); ctx.fill();
+            });
+            alert("분석 완료: 빨간 원이 최적 배치 장소입니다.");
+        };
+    </script>
+</body>
+</html>
