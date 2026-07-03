@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>AED Optimizer — 경로 기반 최적 배치 분석기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0a0e1a;
+  --surface:   #111827;
+  --surface2:  #1a2235;
+  --border:    rgba(255,255,255,0.07);
+  --border2:   rgba(255,255,255,0.12);
+  --red:       #ef4444;
+  --red-glow:  rgba(239,68,68,0.18);
+  --blue:      #3b82f6;
+  --blue-dim:  rgba(59,130,246,0.12);
+  --purple:    #8b5cf6;
+  --text:      #f1f5f9;
+  --text2:     #94a3b8;
+  --text3:     #475569;
+  --mono:      'JetBrains Mono', monospace;
+  --sans:      'Inter', system-ui, sans-serif;
+  --r:         10px;
+  --r-lg:      16px;
+  /* layout */
+  --sidebar-w: 300px;
+  --hero-py:   56px;
+  --main-px:   20px;
+}
+
+html { scroll-behavior: smooth; height: 100%; }
+
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Hero ─────────────────────────────────────────── */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: var(--hero-py) var(--main-px) 40px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+}
+.hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 60% 50% at 50% 0%, rgba(239,68,68,0.12) 0%, transparent 70%),
+    radial-gradient(ellipse 40% 40% at 20% 80%, rgba(59,130,246,0.07) 0%, transparent 60%);
+  pointer-events: none;
+}
+.hero-pulse {
+  width: 64px; height: 64px;
+  margin: 0 auto 20px;
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.hero-pulse::before, .hero-pulse::after {
+  content: '';
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: var(--red-glow);
+  animation: pulse 2.4s ease-out infinite;
+}
+.hero-pulse::after { animation-delay: 1.2s; }
+@keyframes pulse {
+  0%   { transform: scale(0.85); opacity: 0.8; }
+  100% { transform: scale(1.8);  opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-pulse::before, .hero-pulse::after { animation: none; }
+}
+.hero-icon {
+  width: 64px; height: 64px;
+  background: linear-gradient(135deg, #7f1d1d, #ef4444);
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  position: relative; z-index: 1;
+  box-shadow: 0 0 28px rgba(239,68,68,0.35);
+}
+.hero h1 {
+  font-size: clamp(20px, 5vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #f1f5f9 30%, #94a3b8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.hero-sub {
+  font-size: clamp(12px, 2vw, 14px);
+  color: var(--text2);
+  max-width: 520px;
+  margin: 0 auto 20px;
+  line-height: 1.7;
+}
+.hero-tags {
+  display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
+}
+.tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  background: var(--surface);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.tag.red  { border-color: rgba(239,68,68,0.4);  color: #fca5a5; background: rgba(239,68,68,0.08); }
+.tag.blue { border-color: rgba(59,130,246,0.4); color: #93c5fd; background: rgba(59,130,246,0.08); }
+.tag.purp { border-color: rgba(139,92,246,0.4); color: #c4b5fd; background: rgba(139,92,246,0.08); }
+
+/* ── Layout ───────────────────────────────────────── */
+.main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 24px var(--main-px) 60px;
+  display: grid;
+  grid-template-columns: var(--sidebar-w) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+/* ── Sidebar ─────────────────────────────────────── */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* sticky so controls stay visible while scrolling results */
+  position: sticky;
+  top: 16px;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--surface2) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 2px; }
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 16px;
+  flex-shrink: 0;
+}
+.panel-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text3);
+  margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px;
+}
+.panel-title::before {
+  content: '';
+  display: block;
+  width: 12px; height: 1px;
+  background: var(--text3);
+  flex-shrink: 0;
+}
+
+/* Upload */
+.upload-zone {
+  border: 1.5px dashed rgba(255,255,255,0.12);
+  border-radius: var(--r);
+  padding: 22px 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.18s;
+  background: var(--bg);
+  margin-bottom: 14px;
+}
+.upload-zone:hover, .upload-zone.drag {
+  border-color: var(--blue);
+  background: var(--blue-dim);
+}
+.upload-zone .uz-icon { font-size: 26px; margin-bottom: 6px; display: block; }
+.upload-zone p { font-size: 12px; color: var(--text2); }
+.upload-zone small { font-size: 10px; color: var(--text3); }
+
+/* Controls */
+.ctrl-row { margin-bottom: 12px; }
+.ctrl-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: 6px;
+  display: block;
+}
+.ctrl-val {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+input[type=range] {
+  width: 100%;
+  appearance: none;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--surface2);
+  outline: none;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 5px rgba(239,68,68,0.5);
+  cursor: pointer;
+}
+input[type=range]::-moz-range-thumb {
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: var(--red);
+  border: none;
+  cursor: pointer;
+}
+
+/* Segment */
+.seg { display: flex; gap: 4px; }
+.sb {
+  flex: 1;
+  padding: 5px 3px;
+  font-size: 11px;
+  font-family: var(--sans);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text2);
+  transition: all 0.12s;
+  font-weight: 500;
+  min-width: 0;
+}
+.sb:hover { border-color: var(--blue); color: #93c5fd; }
+.sb.on { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.5); }
+
+/* Run button */
+.btn-run {
+  width: 100%;
+  padding: 11px;
+  background: linear-gradient(135deg, #dc2626, #ef4444);
+  color: #fff;
+  border: none;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--sans);
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: .02em;
+  box-shadow: 0 4px 14px rgba(239,68,68,0.3);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  touch-action: manipulation;
+}
+.btn-run:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(239,68,68,0.4); }
+.btn-run:active { transform: translateY(0); }
+.btn-run:disabled { opacity: 0.35; cursor: not-allowed; transform: none; box-shadow: none; }
+
+/* Progress */
+.prog-wrap { margin-top: 10px; display: none; }
+.prog-track { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; }
+.prog-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--red), #f97316);
+  border-radius: 2px;
+  transition: width 0.25s;
+}
+.prog-lbl { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 5px; text-align: center; }
+
+/* Info */
+.info-box {
+  border-radius: var(--r);
+  padding: 8px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-top: 10px;
+  display: none;
+  font-family: var(--mono);
+}
+.ip { background: rgba(139,92,246,0.1); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.25); }
+.iw { background: rgba(251,191,36,0.08); color: #fde68a; border: 1px solid rgba(251,191,36,0.25); }
+
+/* How it works */
+.how-list { list-style: none; display: flex; flex-direction: column; gap: 9px; }
+.how-list li { display: flex; gap: 9px; align-items: flex-start; font-size: 11px; color: var(--text2); line-height: 1.5; }
+.how-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; flex-shrink: 0; margin-top: 1px;
+}
+
+/* ── Result area ─────────────────────────────────── */
+.result-area { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+
+/* Stats */
+.stats-grid {
+  display: none;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 12px 10px;
+  text-align: center;
+  min-width: 0;
+}
+.stat-lbl {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text3);
+  margin-bottom: 4px;
+}
+.stat-num {
+  font-family: var(--mono);
+  font-size: clamp(18px, 2.5vw, 24px);
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Canvas card */
+.canvas-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: none;
+  min-width: 0;
+}
+.canvas-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; flex-wrap: wrap;
+}
+.canvas-header-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text3);
+  white-space: nowrap;
+}
+.tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+.ftab {
+  padding: 3px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border2);
+  border-radius: 20px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text2);
+  font-family: var(--sans);
+  font-weight: 500;
+  transition: all 0.12s;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.ftab:hover { border-color: var(--blue); color: #93c5fd; }
+.ftab.on { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.4); }
+
+/* Canvas scales to container */
+.canvas-wrap { width: 100%; overflow: hidden; position: relative; }
+canvas { display: block; width: 100%; height: auto; }
+
+/* Legend */
+.legend {
+  padding: 9px 14px;
+  border-top: 1px solid var(--border);
+  display: none;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.leg { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text2); white-space: nowrap; }
+.ld { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+
+/* Results list */
+.results-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  display: none;
+}
+.results-card-hd {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--text3);
+}
+.rrow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+  min-width: 0;
+}
+.rrow:last-child { border-bottom: none; }
+.rrow:hover { background: rgba(255,255,255,0.02); }
+.abadge {
+  width: 26px; height: 26px; border-radius: 50%;
+  color: #fff; font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.ri { flex: 1; min-width: 0; }
+.ri-name { font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.floor-badge {
+  font-family: var(--mono);
+  font-size: 10px;
+  background: rgba(139,92,246,0.15);
+  color: #c4b5fd;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(139,92,246,0.25);
+  white-space: nowrap;
+}
+.ri-det { font-family: var(--mono); font-size: 10px; color: var(--text3); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rcount { font-family: var(--mono); font-size: 11px; color: #93c5fd; font-weight: 600; flex-shrink: 0; }
+
+/* ── Footer ───────────────────────────────────────── */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 20px var(--main-px);
+  text-align: center;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--mono);
+  line-height: 1.8;
+}
+footer a { color: var(--text2); text-decoration: none; }
+footer a:hover { color: var(--text); }
+
+/* ══════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+   ══════════════════════════════════════════════════ */
+
+/* Large desktop: widen sidebar slightly */
+@media (min-width: 1200px) {
+  :root { --sidebar-w: 320px; }
+  .main { max-width: 1200px; }
+}
+
+/* Medium: tighten sidebar */
+@media (max-width: 900px) {
+  :root { --sidebar-w: 260px; --hero-py: 40px; }
+}
+
+/* Tablet portrait / small laptop: stack layout */
+@media (max-width: 720px) {
+  .main {
+    grid-template-columns: 1fr;
+    padding-top: 16px;
+    gap: 14px;
+  }
+  .sidebar {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+  }
+  /* collapse "how it works" on small screens — save space */
+  .how-panel { display: none; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+  :root { --hero-py: 32px; --main-px: 14px; }
+  .hero-sub br { display: none; }
+}
+
+/* Mobile: tighten further */
+@media (max-width: 480px) {
+  :root { --hero-py: 24px; --main-px: 12px; }
+  .hero-tags .tag { font-size: 9px; padding: 2px 7px; }
+  .hero h1 { letter-spacing: -0.02em; }
+  .panel { padding: 12px; }
+  .upload-zone { padding: 18px 10px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stat-card { padding: 10px 8px; }
+  .rrow { padding: 8px 12px; gap: 8px; }
+  .ri-det { display: none; } /* too narrow — hide detail row */
+  .canvas-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+/* Very small phones */
+@media (max-width: 360px) {
+  :root { --main-px: 8px; }
+  .stats-grid { grid-template-columns: 1fr 1fr; }
+  .how-panel, .tag.purp { display: none; }
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-pulse">
+    <div class="hero-icon">🫀</div>
+  </div>
+  <h1>AED Optimizer</h1>
+  <p class="hero-sub">
+    건물 도면에서 이동 경로를 자동 감지하고<br>
+    다익스트라 최단 경로 + k-median 알고리즘으로<br>
+    AED 최적 설치 위치를 계산합니다
+  </p>
+  <div class="hero-tags">
+    <span class="tag red">Dijkstra</span>
+    <span class="tag blue">k-Median</span>
+    <span class="tag purp">Multi-Floor</span>
+  </div>
+</header>
+
+<main class="main">
+
+  <!-- ── Sidebar ── -->
+  <aside class="sidebar">
+
+    <div class="panel">
+      <div class="panel-title">도면 업로드</div>
+      <div class="upload-zone" id="uz">
+        <span class="uz-icon">📐</span>
+        <p>이미지를 클릭하거나 드래그</p>
+        <small>PNG · JPG 지원</small>
+        <input type="file" id="fi" accept="image/png,image/jpeg" style="display:none">
+      </div>
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">AED 설치 개수</span>
+        <div class="ctrl-val" id="kv">3</div>
+        <input type="range" id="ks" min="1" max="10" value="3" step="1">
+      </div>
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">파란 경로 감지 민감도</span>
+        <div class="seg">
+          <button class="sb" data-s="low">낮음</button>
+          <button class="sb on" data-s="normal">보통</button>
+          <button class="sb" data-s="high">높음</button>
+        </div>
+      </div>
+
+      <div class="ctrl-row">
+        <span class="ctrl-label">층간 이동 페널티</span>
+        <div class="ctrl-val" id="pv">2.0×</div>
+        <input type="range" id="ps" min="1" max="6" value="2" step="0.5">
+      </div>
+
+      <div class="ctrl-row" style="margin-bottom:16px">
+        <span class="ctrl-label">경로 샘플링 밀도</span>
+        <div class="seg">
+          <button class="sb" data-d="sparse">성김</button>
+          <button class="sb on" data-d="normal">보통</button>
+          <button class="sb" data-d="dense">촘촘</button>
+        </div>
+      </div>
+
+      <button class="btn-run" id="runBtn" disabled>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        분석 실행
+      </button>
+
+      <div class="prog-wrap" id="pw">
+        <div class="prog-track"><div class="prog-fill" id="pf" style="width:0%"></div></div>
+        <div class="prog-lbl" id="pl">준비 중...</div>
+      </div>
+
+      <div class="info-box ip" id="ib"></div>
+      <div class="info-box iw" id="wb"></div>
+    </div>
+
+    <div class="panel how-panel">
+      <div class="panel-title">작동 방식</div>
+      <ul class="how-list">
+        <li>
+          <div class="how-dot" style="background:rgba(59,130,246,0.2);color:#93c5fd">1</div>
+          <span><strong style="color:var(--text)">파란 픽셀</strong> → 이동 가능 경로, 노드 샘플링</span>
+        </li>
+        <li>
+          <div class="how-dot" style="background:rgba(139,92,246,0.2);color:#c4b5fd">2</div>
+          <span><strong style="color:var(--text)">보라 수평선</strong> → 층 경계, 아래부터 1·2·3·4층</span>
+        </li>
+        <li>
+          <div class="how-dot" style="background:rgba(139,92,246,0.2);color:#c4b5fd">3</div>
+          <span><strong style="color:var(--text)">계단(S)</strong> → 층 경계 관통 경로를 연결점으로 등록</span>
+        </li>
+        <li>
+          <div class="how-dot" style="background:rgba(239,68,68,0.2);color:#fca5a5">4</div>
+          <span><strong style="color:var(--text)">Dijkstra</strong> → 전 노드 쌍 최단 경로 계산</span>
+        </li>
+        <li>
+          <div class="how-dot" style="background:rgba(239,68,68,0.2);color:#fca5a5">5</div>
+          <span><strong style="color:var(--text)">k-Median</strong> → 총 이동 거리 합 최소화 위치 선택</span>
+        </li>
+      </ul>
+    </div>
+
+  </aside>
+
+  <!-- ── Results ── -->
+  <div class="result-area">
+
+    <div class="stats-grid" id="sr">
+      <div class="stat-card"><div class="stat-lbl">경로 노드</div><div class="stat-num" id="sN">-</div></div>
+      <div class="stat-card"><div class="stat-lbl">감지 층수</div><div class="stat-num" id="sF">-</div></div>
+      <div class="stat-card"><div class="stat-lbl">AED 배치</div><div class="stat-num" id="sA">-</div></div>
+      <div class="stat-card"><div class="stat-lbl">평균 거리</div><div class="stat-num" id="sD">-</div></div>
+    </div>
+
+    <div class="canvas-card" id="cc">
+      <div class="canvas-header">
+        <span class="canvas-header-label">도면 분석 결과</span>
+        <div class="tabs" id="tabs"></div>
+      </div>
+      <div class="canvas-wrap">
+        <canvas id="mc"></canvas>
+      </div>
+      <div class="legend" id="lg">
+        <div class="leg"><div style="width:18px;height:3px;background:#3b82f6;border-radius:2px"></div>이동 경로</div>
+        <div class="leg"><div style="width:18px;height:2px;border-top:2px dashed #8b5cf6"></div>층 경계</div>
+        <div class="leg"><div class="ld" style="background:#7c3aed"></div>계단(S)</div>
+        <div class="leg"><div class="ld" style="background:#ef4444"></div>AED 위치</div>
+      </div>
+    </div>
+
+    <div class="results-card" id="rc">
+      <div class="results-card-hd">추천 AED 설치 위치</div>
+      <div id="rl"></div>
+    </div>
+
+  </div>
+</main>
+
+<footer>
+  AED Optimizer &nbsp;·&nbsp; Dijkstra + k-Median &nbsp;·&nbsp;
+  <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+  &nbsp;·&nbsp; 단순 설치 여부가 아닌 <em>접근성</em>을 최적화합니다
+</footer>
+
+<script>
+/* ── State ── */
+let imgEl=null,imgW=0,imgH=0,sens='normal',dens='normal',penalty=2.0,G=null;
+const fi=document.getElementById('fi');
+const runBtn=document.getElementById('runBtn');
+const mc=document.getElementById('mc');
+const ctx=mc.getContext('2d');
+const COLORS=['#ef4444','#f97316','#10b981','#0ea5e9','#ec4899','#f59e0b','#6366f1','#14b8a6','#84cc16','#8b5cf6'];
+
+/* ── Upload ── */
+const uz=document.getElementById('uz');
+uz.addEventListener('click',()=>fi.click());
+uz.addEventListener('dragover',e=>{e.preventDefault();uz.classList.add('drag')});
+uz.addEventListener('dragleave',()=>uz.classList.remove('drag'));
+uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('drag');const f=e.dataTransfer.files[0];if(f)loadFile(f)});
+fi.addEventListener('change',e=>{if(e.target.files[0])loadFile(e.target.files[0])});
+
+/* ── Controls ── */
+document.getElementById('ks').addEventListener('input',function(){document.getElementById('kv').textContent=this.value});
+document.getElementById('ps').addEventListener('input',function(){penalty=parseFloat(this.value);document.getElementById('pv').textContent=penalty.toFixed(1)+'×'});
+document.querySelectorAll('.sb[data-s]').forEach(b=>b.addEventListener('click',function(){document.querySelectorAll('.sb[data-s]').forEach(x=>x.classList.remove('on'));this.classList.add('on');sens=this.dataset.s}));
+document.querySelectorAll('.sb[data-d]').forEach(b=>b.addEventListener('click',function(){document.querySelectorAll('.sb[data-d]').forEach(x=>x.classList.remove('on'));this.classList.add('on');dens=this.dataset.d}));
+
+function loadFile(f){
+  const r=new FileReader();
+  r.onload=e=>{
+    imgEl=new Image();
+    imgEl.onload=()=>{
+      imgW=imgEl.naturalWidth;imgH=imgEl.naturalHeight;
+      mc.width=imgW;mc.height=imgH;ctx.drawImage(imgEl,0,0);
+      document.getElementById('cc').style.display='block';
+      uz.innerHTML=`<span class="uz-icon">✅</span><p style="color:var(--text);font-weight:600">${f.name}</p><small>로드 완료 — 분석 실행을 누르세요</small>`;
+      runBtn.disabled=false;
+      ['sr','lg','rc'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none'});
+      document.getElementById('rl').innerHTML='';
+      document.getElementById('ib').style.display='none';
+      document.getElementById('wb').style.display='none';
+    };
+    imgEl.src=e.target.result;
+  };
+  r.readAsDataURL(f);
+}
+
+/* ── Helpers ── */
+function tick(){return new Promise(r=>setTimeout(r,0))}
+function prog(p,l){document.getElementById('pf').style.width=p+'%';document.getElementById('pl').textContent=l}
+function isBlue(r,g,b){
+  let tB=115,tR=1.3,tS=40;
+  if(sens==='high'){tB=85;tR=1.1;tS=20}else if(sens==='low'){tB=150;tR=1.55;tS=60}
+  const mx=Math.max(r,g,b),mn=Math.min(r,g,b);
+  return b>tB&&b>r*tR&&b>g*1.05&&mx>0&&(mx-mn)/mx*255>tS;
+}
+function isPurple(r,g,b){return r>80&&b>80&&g<r*0.82&&Math.abs(r-b)<90&&r>100&&b>100&&g<130}
+function getFloor(y,bounds){for(let i=0;i<bounds.length-1;i++)if(y>=bounds[i]&&y<bounds[i+1])return bounds.length-1-i;return y<bounds[0]?bounds.length:1}
+
+/* ── Run ── */
+runBtn.addEventListener('click',async()=>{
+  if(!imgEl)return;
+  runBtn.disabled=true;
+  document.getElementById('pw').style.display='block';
+  document.getElementById('rl').innerHTML='';
+  document.getElementById('ib').style.display='none';
+  document.getElementById('wb').style.display='none';
+
+  prog(5,'픽셀 분석 중...');await tick();
+  mc.width=imgW;mc.height=imgH;ctx.drawImage(imgEl,0,0);
+  const data=ctx.getImageData(0,0,imgW,imgH).data;
+
+  prog(12,'파란 경로 추출 중...');await tick();
+  const mask=new Uint8Array(imgW*imgH);
+  for(let y=0;y<imgH;y++)for(let x=0;x<imgW;x++){const i=(y*imgW+x)*4;if(isBlue(data[i],data[i+1],data[i+2]))mask[y*imgW+x]=1}
+
+  prog(22,'층 경계선 감지 중...');await tick();
+  const rowS=new Float32Array(imgH);
+  for(let y=0;y<imgH;y++){let c=0;for(let x=0;x<imgW;x++){const i=(y*imgW+x)*4;if(isPurple(data[i],data[i+1],data[i+2]))c++}rowS[y]=c/imgW}
+  const pLines=[];let inL=false,lsm=0,lsc=0;
+  for(let y=0;y<imgH;y++){
+    if(rowS[y]>0.03){if(!inL){inL=true;lsm=0;lsc=0}lsm+=y;lsc++}
+    else if(inL){if(lsc>1)pLines.push(Math.round(lsm/lsc));inL=false}
+  }
+  if(inL&&lsc>1)pLines.push(Math.round(lsm/lsc));
+  const purpleLines=[];for(const l of pLines){if(!purpleLines.length||l-purpleLines[purpleLines.length-1]>imgH*0.04)purpleLines.push(l)}
+  const bounds=[0,...purpleLines,imgH];const numF=bounds.length-1;
+
+  prog(33,'노드 샘플링 중...');await tick();
+  const step=dens==='dense'?8:dens==='sparse'?18:12;
+  const nodes=[];
+  for(let y=step;y<imgH-step;y+=step){
+    for(let x=step;x<imgW-step;x+=step){
+      if(!mask[y*imgW+x])continue;
+      let onPL=false;for(const pl of purpleLines)if(Math.abs(y-pl)<5){onPL=true;break}
+      if(!onPL)nodes.push([x,y]);
+    }
+  }
+  if(nodes.length===0){
+    const wb=document.getElementById('wb');wb.style.display='block';
+    wb.textContent='파란 경로를 감지하지 못했습니다. 감지 민감도를 높이거나 이미지를 확인해주세요.';
+    document.getElementById('pw').style.display='none';runBtn.disabled=false;
+    runBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 다시 분석';
+    return;
+  }
+
+  prog(43,'계단 연결점 탐색 중...');await tick();
+  const stairs=[];
+  for(const pl of purpleLines){
+    for(let x=15;x<imgW-15;x+=12){
+      let up=false,dn=false;
+      for(let dy=3;dy<30;dy++){if(pl-dy>=0&&mask[(pl-dy)*imgW+x])up=true;if(pl+dy<imgH&&mask[(pl+dy)*imgW+x])dn=true}
+      if(up&&dn)stairs.push({x,y:pl});
+    }
+    for(let i=stairs.length-1;i>0;i--){if(stairs[i].y===stairs[i-1].y&&Math.abs(stairs[i].x-stairs[i-1].x)<20)stairs.splice(i,1)}
+  }
+
+  prog(53,'경로 그래프 구성 중...');await tick();
+  const n=nodes.length;
+  const MAX_D=step*2.5;
+  const adj=Array.from({length:n},()=>[]);
+  for(let i=0;i<n;i++){
+    const[ax,ay]=nodes[i];const fa=getFloor(ay,bounds);
+    const near=[];
+    for(let j=0;j<n;j++){
+      if(i===j)continue;const[bx,by]=nodes[j];
+      if(getFloor(by,bounds)!==fa)continue;
+      const d=Math.sqrt((ax-bx)**2+(ay-by)**2);
+      if(d<MAX_D)near.push([d,j]);
+    }
+    near.sort((a,b)=>a[0]-b[0]);
+    for(let k=0;k<Math.min(8,near.length);k++)adj[i].push([near[k][1],near[k][0]]);
+  }
+  const stairCost=imgH*0.1*penalty;
+  for(const st of stairs){
+    const upN=[],dnN=[];
+    for(let i=0;i<n;i++){
+      const[x,y]=nodes[i];const hd=Math.abs(x-st.x),vd=Math.abs(y-st.y);
+      if(hd<step*3&&vd>2&&vd<step*4){if(y<st.y)upN.push([i,Math.sqrt(hd*hd+vd*vd)]);else dnN.push([i,Math.sqrt(hd*hd+vd*vd)])}
+    }
+    upN.sort((a,b)=>a[1]-b[1]);dnN.sort((a,b)=>a[1]-b[1]);
+    for(const[ai,ad]of upN.slice(0,4))for(const[bi,bd]of dnN.slice(0,4)){const t=ad+stairCost+bd;adj[ai].push([bi,t]);adj[bi].push([ai,t])}
+  }
+
+  prog(63,'다익스트라 최단 경로 계산 중...');await tick();
+  function dijkstra(src){
+    const dist=new Float32Array(n).fill(1e9);dist[src]=0;
+    const vis=new Uint8Array(n);const pq=[[0,src]];
+    while(pq.length){
+      let mi=0;for(let i=1;i<pq.length;i++)if(pq[i][0]<pq[mi][0])mi=i;
+      const[d,u]=pq.splice(mi,1)[0];
+      if(vis[u])continue;vis[u]=1;
+      for(const[v,w]of adj[u])if(dist[u]+w<dist[v]){dist[v]=dist[u]+w;pq.push([dist[v],v])}
+    }
+    return dist;
+  }
+  const DM=[];
+  for(let i=0;i<n;i++){
+    DM.push(dijkstra(i));
+    if(i%15===0){prog(63+Math.round(i/n*22),'최단 경로 계산 중 ('+i+'/'+n+')...');await tick()}
+  }
+
+  prog(88,'k-Median 최적화 중...');await tick();
+  const k=Math.min(parseInt(document.getElementById('ks').value),n);
+  const centers=[];const used=new Set();
+  let b0=0,bS=1e18;
+  for(let i=0;i<n;i++){let s=0;for(let j=0;j<n;j++)s+=DM[i][j]>1e8?1e9:DM[i][j];if(s<bS){bS=s;b0=i}}
+  centers.push(b0);used.add(b0);
+  while(centers.length<k){
+    let nxt=-1,nxtG=-1;
+    for(let c=0;c<n;c++){
+      if(used.has(c))continue;
+      let gain=0;
+      for(let j=0;j<n;j++){let cm=1e9;for(const ci of centers)cm=Math.min(cm,DM[ci][j]>1e8?1e9:DM[ci][j]);gain+=Math.max(0,cm-(DM[c][j]>1e8?1e9:DM[c][j]))}
+      if(gain>nxtG){nxtG=gain;nxt=c}
+    }
+    if(nxt<0)break;centers.push(nxt);used.add(nxt);
+  }
+
+  prog(96,'결과 렌더링 중...');await tick();
+  G={nodes,stairs,purpleLines,bounds,numF,centers,DM};
+  drawAll(-1);
+
+  document.getElementById('sr').style.display='grid';
+  document.getElementById('sN').textContent=n;
+  document.getElementById('sF').textContent=numF;
+  document.getElementById('sA').textContent=centers.length;
+  let tot=0,cnt2=0;
+  for(let j=0;j<n;j++){let md=1e9;for(const ci of centers)md=Math.min(md,DM[ci][j]);if(md<1e8){tot+=md;cnt2++}}
+  document.getElementById('sD').textContent=cnt2?Math.round(tot/cnt2)+'px':'-';
+
+  document.getElementById('lg').style.display='flex';
+
+  const tabsEl=document.getElementById('tabs');tabsEl.innerHTML='';
+  const all=document.createElement('button');all.className='ftab on';all.textContent='전체';
+  all.addEventListener('click',()=>{document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('on'));all.classList.add('on');drawAll(-1)});
+  tabsEl.appendChild(all);
+  for(let f=numF;f>=1;f--){
+    const btn=document.createElement('button');btn.className='ftab';btn.textContent=f+'층';
+    const fl=f;btn.addEventListener('click',()=>{document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('on'));btn.classList.add('on');drawAll(fl)});
+    tabsEl.appendChild(btn);
+  }
+
+  const assign=centers.map(()=>[]);
+  for(let j=0;j<n;j++){let bi=0,bd=1e9;centers.forEach((ci,idx)=>{const d=DM[ci][j];if(d<bd){bd=d;bi=idx}});assign[bi].push(j)}
+  const rcEl=document.getElementById('rc');rcEl.style.display='block';
+  const rl=document.getElementById('rl');rl.innerHTML='';
+  centers.forEach((ci,idx)=>{
+    const[x,y]=nodes[ci];const f=getFloor(y,bounds);
+    const xP=Math.round(x/imgW*100),yP=Math.round(y/imgH*100);
+    const cover=assign[idx].length;
+    let maxD=0;assign[idx].forEach(j=>{if(DM[ci][j]<1e8&&DM[ci][j]>maxD)maxD=DM[ci][j]});
+    const row=document.createElement('div');row.className='rrow';
+    row.innerHTML=`<div class="abadge" style="background:${COLORS[idx%COLORS.length]};box-shadow:0 2px 10px ${COLORS[idx%COLORS.length]}55">${idx+1}</div>
+    <div class="ri">
+      <div class="ri-name">AED ${idx+1}번<span class="floor-badge">${f}층</span></div>
+      <div class="ri-det">(${xP}%, ${yP}%) · 커버 ${cover}개 · 최대 ${Math.round(maxD)}px</div>
+    </div>
+    <div class="rcount">${cover}개</div>`;
+    rl.appendChild(row);
+  });
+
+  const ib=document.getElementById('ib');ib.style.display='block';
+  ib.textContent=purpleLines.length
+    ?`${numF}개 층 감지 (경계선 ${purpleLines.length}개) · 노드 ${n}개 · 계단 연결점 ${stairs.length}개`
+    :`층 경계선 미감지 → 단층으로 처리 · 노드 ${n}개`;
+
+  document.getElementById('pw').style.display='none';
+  runBtn.disabled=false;
+  runBtn.innerHTML='<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg> 다시 분석';
+  prog(100,'완료');
+});
+
+/* ── Draw ── */
+function drawAll(filterFloor){
+  if(!G)return;
+  const{nodes,stairs,purpleLines,bounds,numF,centers}=G;
+  ctx.drawImage(imgEl,0,0);
+  const lw=Math.max(1.5,imgW/600);
+
+  purpleLines.forEach((y,idx)=>{
+    ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(imgW,y);
+    ctx.strokeStyle='#8b5cf6';ctx.lineWidth=lw*2;ctx.setLineDash([12,5]);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle='rgba(109,40,217,0.92)';
+    ctx.font=`bold ${Math.max(12,imgW/75)}px sans-serif`;
+    ctx.textAlign='left';ctx.textBaseline='bottom';ctx.fillText(`${numF-idx}층`,6,y-3);
+    ctx.textBaseline='top';ctx.fillText(`${numF-idx-1}층`,6,y+3);
+  });
+  if(purpleLines.length===0){
+    ctx.fillStyle='rgba(109,40,217,0.92)';ctx.font=`bold ${Math.max(12,imgW/75)}px sans-serif`;
+    ctx.textAlign='left';ctx.textBaseline='top';ctx.fillText('1층',6,6);
+  }
+
+  const pR=Math.max(2,imgW/320);
+  nodes.forEach(([x,y])=>{
+    if(filterFloor!==-1&&getFloor(y,bounds)!==filterFloor)return;
+    ctx.beginPath();ctx.arc(x,y,pR,0,Math.PI*2);ctx.fillStyle='rgba(59,130,246,0.65)';ctx.fill();
+  });
+
+  stairs.forEach(({x,y})=>{
+    if(filterFloor!==-1){const fa=getFloor(y-5,bounds),fb=getFloor(y+5,bounds);if(fa!==filterFloor&&fb!==filterFloor)return}
+    const sr=Math.max(7,imgW/90);
+    ctx.beginPath();ctx.arc(x,y,sr,0,Math.PI*2);ctx.fillStyle='rgba(124,58,237,0.82)';ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=lw;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(8,imgW/100)}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('S',x,y);
+  });
+
+  centers.forEach((ci,idx)=>{
+    const[x,y]=nodes[ci];const f=getFloor(y,bounds);
+    if(filterFloor!==-1&&f!==filterFloor)return;
+    const r=Math.max(14,imgW/52);
+    ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+    ctx.fillStyle=COLORS[idx%COLORS.length];ctx.fill();
+    ctx.strokeStyle='#fff';ctx.lineWidth=lw*2;ctx.stroke();
+    ctx.shadowColor=COLORS[idx%COLORS.length];ctx.shadowBlur=10;
+    ctx.fillStyle='#fff';ctx.font=`bold ${Math.max(11,imgW/68)}px sans-serif`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(idx+1,x,y);
+    ctx.shadowBlur=0;
+  });
+}
+</script>
+</body>
+</html>
